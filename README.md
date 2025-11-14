@@ -7,7 +7,7 @@
 
 ---
 
-![Logo](logo.svg)
+![Logo](vito.png)
 
 ## ✨ Overview
 
