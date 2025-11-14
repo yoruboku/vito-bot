@@ -94,26 +94,6 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
 
 ---
 
-## ⚡ Running the Bot Manually
-
-#### Linux/macOS
-
-```bash
-source venv/bin/activate
-python3 main.py
-```
-
-#### Windows (PowerShell)
-
-```powershell
-# Activate virtual environment
-.\venv\Scripts\Activate.ps1
-# Run bot
-python.exe main.py
-```
-
----
-
 ## 📝 Discord Developer Setup
 
 1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
