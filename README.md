@@ -1,4 +1,5 @@
-# ![BOKU AIDC](logo.svg) BOKU AIDC - Discord AI Bot
+# ![BOKU AIDC](logo.svg) 
+YoruBoku AIDC - Discord AI Bot
 
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Playwright](https://img.shields.io/badge/playwright-1.44.0-brightgreen.svg)](https://playwright.dev/)
