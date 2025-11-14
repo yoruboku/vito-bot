@@ -1,4 +1,4 @@
-# ![BOKU AIDC](logo.svg) BOKU AIDC - Discord AI Bot
+#BOKU - Discord AI Bot
 
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Playwright](https://img.shields.io/badge/playwright-1.44.0-brightgreen.svg)](https://playwright.dev/)
@@ -42,3 +42,10 @@ It automatically answers questions in your server when mentioned (`@zom`) and su
 ```bash
 git clone https://github.com/yoruboku/aidc-bot.git
 cd aidc-bot
+
+#Run Installer:
+
+Linux / macOS / Termux:
+```bash
+chmod +x unified_install.sh
+./unified_install.sh
