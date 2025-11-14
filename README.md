@@ -1,2 +1,0 @@
-#aidc-bot
-hello,
