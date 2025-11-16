@@ -1,112 +1,80 @@
-#!/usr/bin/env pwsh
-Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
 
-function Color([string]$text, [string]$color){ Write-Host $text -ForegroundColor $color }
+function Banner {
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host "          V I T O   I N S T A L L E R       " -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+}
+Banner
 
-Color "============================================" Cyan
-Color "           V I T O - Installer              " Cyan
-Color "============================================" Cyan
+# Python detection
+$py = (Get-Command python, python3, py -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+if (-not $py) { Write-Host "Python not found. Install Python 3.11+" -ForegroundColor Red; exit }
 
-# Find Python
-$pythonCandidates = @("python","python3","py")
-$PY = $null
-foreach ($c in $pythonCandidates) { if (Get-Command $c -ErrorAction SilentlyContinue) { $PY = $c; break } }
-if (-not $PY) { Color "Python 3.9+ not found. Install Python and retry." Red; exit 1 }
-Color "Using Python: $PY" Green
+Write-Host "Using Python: $py" -ForegroundColor Green
 
-# If installed already
+# Quick-run if installed
 if (Test-Path "venv" -and Test-Path ".env") {
-    Color "Existing install found." Yellow
-    $resp = Read-Host "Update dependencies and start VITO now? (y/n)"
-    if ($resp -match '^[Yy]') {
-        & .\venv\Scripts\Activate.ps1
-        pip install --upgrade pip
-        pip install -r requirements.txt
-        & $PY -m playwright install chromium
-        & $PY main.py
-        exit
-    } else { exit 0 }
+    Write-Host "Updating dependencies..." -ForegroundColor Yellow
+    & $py -m pip install --upgrade pip
+    & $py -m pip install -r requirements.txt
+    & $py -m playwright install chromium
+    Write-Host "Starting VITO..." -ForegroundColor Green
+    & $py main.py
+    exit
 }
 
-Color "Creating virtualenv..." Blue
-& $PY -m venv venv
-.\venv\Scripts\Activate.ps1
+# New install
+Write-Host "Creating virtual environment..." -ForegroundColor Blue
+& $py -m venv venv
+& "venv\Scripts\Activate.ps1"
 
-Color "Installing dependencies..." Blue
+Write-Host "Installing dependencies..." -ForegroundColor Blue
 pip install --upgrade pip
 pip install -r requirements.txt
+& $py -m playwright install chromium
 
-Color "Installing Playwright Chromium..." Blue
-& $PY -m playwright install chromium
-
-# Discord token + Bot ID
-while ($true) {
-    $TOKEN = Read-Host "Enter your Discord BOT TOKEN"
-    $BOTID = Read-Host "Enter your Discord BOT ID (numeric)"
-    Color "You entered:" Magenta
-    Write-Host ("TOKEN: " + $TOKEN.Substring(0,[Math]::Min(6,$TOKEN.Length)) + "... (hidden)")
-    Write-Host ("BOT ID: " + $BOTID)
+# Credentials
+do {
+    $token = Read-Host "Enter BOT TOKEN"
+    $id = Read-Host "Enter BOT ID (numbers only)"
+    Write-Host "TOKEN: $($token.Substring(0,8))...  BOT: $id" -ForegroundColor Magenta
     $ok = Read-Host "Is this correct? (y/n)"
-    if ($ok -match '^[Yy]') { break }
-}
+} until ($ok -match "^[Yy]$")
 
-# Owner menu
-Write-Host ""
-Write-Host "Owner configuration options:"
-Write-Host "1) Default (only 'yoruboku' has priority)"
-Write-Host "2) Set Owner A (single username)"
-Write-Host "3) Set Owner A + Owner B (multiple usernames)"
-$choice = Read-Host "Choose 1/2/3"
-$OWNER_MAIN = ""
-$OWNER_EXTRA = ""
+# Owner mode
+Write-Host "`nOwner Selection" -ForegroundColor Cyan
+Write-Host "1) Default (only 'yoruboku')"
+Write-Host "2) Custom Owners"
+$choice = Read-Host ">"
 
+$owners = ""
 if ($choice -eq "2") {
-    $OWNER_MAIN = Read-Host "Enter Owner A global username (e.g. yoruboku)"
-} elseif ($choice -eq "3") {
-    $OWNER_MAIN = Read-Host "Enter Owner A global username"
-    $OWNER_EXTRA = Read-Host "Enter Owner B usernames (comma separated)"
+    while ($true) {
+        $n = Read-Host "Enter owner username"
+        if ($owners -eq "") { $owners = $n } else { $owners += ",$n" }
+        $m = Read-Host "Add another? (y/n)"
+        if ($m -notmatch "^[Yy]$") { break }
+    }
 }
-
-Write-Host "Owner settings:"
-if (-not $OWNER_MAIN -and -not $OWNER_EXTRA) { Write-Host "Default: priority owner 'yoruboku' only." } else {
-    Write-Host ("OWNER_MAIN: " + $OWNER_MAIN)
-    Write-Host ("OWNER_EXTRA: " + $OWNER_EXTRA)
-}
-$confirm = Read-Host "Save settings? (y/n)"
-if ($confirm -notmatch '^[Yy]') { Write-Host "Aborting."; exit 1 }
 
 # Write .env
-@"
-DISCORD_TOKEN=$TOKEN
-BOT_ID=$BOTID
-OWNER_MAIN=$OWNER_MAIN
-OWNER_EXTRA=$OWNER_EXTRA
-PRIORITY_OWNER=yoruboku
-"@ | Out-File -Encoding utf8 .env
-Write-Host ".env created." -ForegroundColor Green
+Set-Content ".env" "DISCORD_TOKEN=$token`nBOT_ID=$id`nOWNERS=$owners"
 
-# Open persistent Chromium for Gemini login
-New-Item -ItemType Directory -Force -Path "playwright_data" | Out-Null
-$open = Read-Host "Open Chromium now to log into Gemini? (y/n)"
-if ($open -match '^[Yy]') {
-    $pycode = @"
+# Persistent login
+Write-Host "`nLaunching Gemini...`n" -ForegroundColor Cyan
+
+& $py - << 'EOF'
 from playwright.sync_api import sync_playwright
 import os
-os.makedirs('playwright_data', exist_ok=True)
+os.makedirs("playwright_data", exist_ok=True)
 with sync_playwright() as p:
-    context = p.chromium.launch_persistent_context(user_data_dir='playwright_data', headless=False)
-    page = context.new_page()
-    page.goto('https://gemini.google.com/')
-    print('Log in, then close the browser window to continue.')
-    try:
-        context.wait_for_event('close')
-    except:
-        pass
-    context.storage_state(path='playwright_data/state.json')
-    context.close()
-"@
-    & $PY -c $pycode
-}
+    ctx = p.chromium.launch_persistent_context("playwright_data", headless=False)
+    pg = ctx.new_page()
+    pg.goto("https://gemini.google.com")
+    print("Login in browser, then *close browser* to continue.")
+    ctx.wait_for_event("close")
+EOF
 
 Write-Host "Starting VITO..." -ForegroundColor Green
-& $PY main.py
+& $py main.py
