@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# =======================
-#  VITO AI CORE INSTALLER
-# =======================
+# VITO - Neon Arch-style installer
 
 GREEN="\033[1;32m"
 YELLOW="\033[1;33m"
@@ -15,18 +13,83 @@ RESET="\033[0m"
 
 banner() {
   echo -e "${MAGENTA}"
-  echo "╔═══════════════════════════════════════════════╗"
-  echo "║         V I T O   A I   C O R E              ║"
-  echo "║        Discord  ×  Gemini  ×  Playwright     ║"
-  echo "╚═══════════════════════════════════════════════╝"
-  echo -e "${RESET}"
+  echo "██╗   ██╗██╗████████╗ ██████╗ "
+  echo "██║   ██║██║╚══██╔══╝██╔═══██╗"
+  echo "██║   ██║██║   ██║   ██║   ██║"
+  echo "██║   ██║██║   ██║   ██║   ██║"
+  echo "╚██████╔╝██║   ██║   ╚██████╔╝"
+  echo " ╚═════╝ ╚═╝   ╚═╝    ╚═════╝ "
+  echo -e "${CYAN}         VITO · AI CORE INSTALLER${RESET}"
+  echo
 }
 
-banner
+# -------- low-level TUI (arrow menu) --------
 
+menu_choice() {
+  # usage: menu_choice "title" "opt1" "opt2" "opt3" ...
+  local title="$1"; shift
+  local options=("$@")
+  local selected=0
+  local key
+
+  while true; do
+    clear
+    banner
+    echo -e "${CYAN}${title}${RESET}"
+    echo
+
+    for i in "${!options[@]}"; do
+      if [ "$i" -eq "$selected" ]; then
+        # highlighted line
+        echo -e "${BLUE}> ${options[$i]}${RESET}"
+      else
+        echo "  ${options[$i]}"
+      fi
+    done
+
+    # read one key (arrow or enter)
+    # save terminal state
+    old_stty_cfg=$(stty -g)
+    stty -icanon -echo min 1 time 0
+    IFS= read -rsn1 key 2>/dev/null || true
+    # restore
+    stty "$old_stty_cfg"
+
+    # handle arrows / enter
+    if [[ "$key" == $'\x1b' ]]; then
+      # possible arrow key, read the rest
+      old_stty_cfg=$(stty -g)
+      stty -icanon -echo min 2 time 0
+      IFS= read -rsn2 key2 2>/dev/null || true
+      stty "$old_stty_cfg"
+      key+="$key2"
+      case "$key" in
+        $'\x1b[A') # up
+          ((selected--))
+          if [ "$selected" -lt 0 ]; then
+            selected=$((${#options[@]} - 1))
+          fi
+          ;;
+        $'\x1b[B') # down
+          ((selected++))
+          if [ "$selected" -ge "${#options[@]}" ]; then
+            selected=0
+          fi
+          ;;
+      esac
+    elif [[ "$key" == "" || "$key" == $'\n' || "$key" == $'\r' ]]; then
+      # enter
+      echo "$selected"
+      return
+    fi
+  done
+}
+
+# -------- Python detection --------
+
+banner
 echo -e "${CYAN}[*] Scanning environment...${RESET}"
 
-# ---------- Detect Python ----------
 PYTHON_BIN=""
 for p in python3 python py; do
   if command -v "$p" >/dev/null 2>&1; then
@@ -35,99 +98,17 @@ for p in python3 python py; do
   fi
 done
 
-if [ -z "${PYTHON_BIN}" ]; then
+if [ -z "$PYTHON_BIN" ]; then
   echo -e "${RED}[!] Python 3.11+ not found. Install Python first.${RESET}"
   exit 1
 fi
 
-echo -e "${GREEN}[✓] Python detected:${RESET} ${PYTHON_BIN}"
+echo -e "${GREEN}[✓] Using Python:${RESET} $PYTHON_BIN"
 
-# ---------- Detect menu backend ----------
-MENU_TOOL="bash"
-if command -v whiptail >/dev/null 2>&1; then
-  MENU_TOOL="whiptail"
-elif command -v dialog >/dev/null 2>&1; then
-  MENU_TOOL="dialog"
-fi
-
-echo -e "${CYAN}[*] UI backend:${RESET} ${MENU_TOOL}"
-
-# ---------- Helpers ----------
-
-menu_main() {
-  local choice="run"
-  if [ "$MENU_TOOL" = "whiptail" ]; then
-    choice=$(
-      whiptail --title "VITO AI CORE" \
-        --backtitle "VITO Launcher · Neon Mode" \
-        --menu "Select an action:" 17 70 3 \
-        "run"     "Run VITO (default)" \
-        "install" "New install / reinstall" \
-        "exit"    "Exit" 3>&1 1>&2 2>&3 || echo "exit"
-    )
-  elif [ "$MENU_TOOL" = "dialog" ]; then
-    choice=$(
-      dialog --stdout --title "VITO AI CORE" \
-        --backtitle "VITO Launcher · Neon Mode" \
-        --menu "Select an action:" 17 70 3 \
-        "run"     "Run VITO (default)" \
-        "install" "New install / reinstall" \
-        "exit"    "Exit"
-    ) || choice="exit"
-  else
-    echo
-    echo -e "${CYAN}VITO Launcher:${RESET}"
-    echo "  [1] Run VITO (default)"
-    echo "  [2] New install / reinstall"
-    echo "  [3] Exit"
-    read -rp "Select [1-3] (Enter = 1): " ans
-    case "$ans" in
-      2) choice="install" ;;
-      3) choice="exit" ;;
-      *) choice="run" ;;
-    esac
-  fi
-  echo "$choice"
-}
-
-menu_owner_mode() {
-  local choice="default"
-  if [ "$MENU_TOOL" = "whiptail" ]; then
-    choice=$(
-      whiptail --title "Owner Mode" \
-        --backtitle "VITO AI CORE · Access Control" \
-        --menu "Choose owner configuration:" 18 70 3 \
-        "default" "Built-in priority owner 'yoruboku' only" \
-        "custom"  "Add extra owner usernames" \
-        "none"    "No owners (not recommended)" 3>&1 1>&2 2>&3 || echo "default"
-    )
-  elif [ "$MENU_TOOL" = "dialog" ]; then
-    choice=$(
-      dialog --stdout --title "Owner Mode" \
-        --backtitle "VITO AI CORE · Access Control" \
-        --menu "Choose owner configuration:" 18 70 3 \
-        "default" "Built-in priority owner 'yoruboku' only" \
-        "custom"  "Add extra owner usernames" \
-        "none"    "No owners (not recommended)"
-    ) || choice="default"
-  else
-    echo
-    echo -e "${CYAN}Owner Mode:${RESET}"
-    echo "  [1] Default (only 'yoruboku')"
-    echo "  [2] Custom owners"
-    echo "  [3] No owners"
-    read -rp "Select [1-3] (Enter = 1): " ans
-    case "$ans" in
-      2) choice="custom" ;;
-      3) choice="none" ;;
-      *) choice="default" ;;
-    esac
-  fi
-  echo "$choice"
-}
+# -------- helper: chmod scripts --------
 
 set_exec_perms() {
-  echo -e "${CYAN}[*] Enabling execute bit on helper scripts...${RESET}"
+  echo -e "${CYAN}[*] Setting execute bit on helper scripts...${RESET}"
   for f in install.sh update.sh open_gemini.sh; do
     if [ -f "$f" ]; then
       chmod +x "$f"
@@ -136,16 +117,22 @@ set_exec_perms() {
   done
 }
 
+# -------- run bot --------
+
 run_bot() {
-  echo -e "${CYAN}[*] Spinning up VITO core...${RESET}"
+  echo -e "${CYAN}[*] Starting VITO...${RESET}"
   # shellcheck disable=SC1091
   source venv/bin/activate
-  $PYTHON_BIN main.py
+  "$PYTHON_BIN" main.py
 }
 
+# -------- install path --------
+
 do_install() {
+  clear
+  banner
   echo -e "${BLUE}▶ STEP 1: Virtual environment${RESET}"
-  $PYTHON_BIN -m venv venv
+  "$PYTHON_BIN" -m venv venv
   # shellcheck disable=SC1091
   source venv/bin/activate
 
@@ -153,19 +140,20 @@ do_install() {
   pip install --upgrade pip
   pip install -r requirements.txt
 
-  echo -e "${BLUE}▶ STEP 3: Playwright + Chromium${RESET}"
-  $PYTHON_BIN -m playwright install chromium
+  echo -e "${BLUE}▶ STEP 3: Playwright Chromium${RESET}"
+  "$PYTHON_BIN" -m playwright install chromium
 
-  # Credentials
   echo -e "${BLUE}▶ STEP 4: Discord credentials${RESET}"
   local DISCORD_TOKEN BOT_ID
   while true; do
     read -rp "Discord BOT TOKEN: " DISCORD_TOKEN
     read -rp "Discord BOT ID (numeric): " BOT_ID
+
     if ! [[ "$BOT_ID" =~ ^[0-9]+$ ]]; then
       echo -e "${RED}[!] BOT ID must be numeric.${RESET}"
       continue
     fi
+
     echo -e "${MAGENTA}You entered:${RESET}"
     echo "  TOKEN: ${DISCORD_TOKEN:0:8}..."
     echo "  BOT ID: $BOT_ID"
@@ -173,49 +161,55 @@ do_install() {
     [[ "$ok" == [Yy]* ]] && break
   done
 
-  # Owner mode
   echo -e "${BLUE}▶ STEP 5: Owner configuration${RESET}"
-  local OWNER_MODE OWNERS=""
-  OWNER_MODE=$(menu_owner_mode)
-  if [ "$OWNER_MODE" = "custom" ]; then
-    echo
-    echo -e "${CYAN}Enter extra owner usernames (global @ names, case-insensitive).${RESET}"
-    echo "Leave empty and press Enter to finish."
-    while true; do
-      read -rp "Owner username: " ow
-      [ -z "$ow" ] && break
-      if [ -z "$OWNERS" ]; then
-        OWNERS="$ow"
-      else
-        OWNERS="$OWNERS,$ow"
-      fi
-    done
-  elif [ "$OWNER_MODE" = "none" ]; then
-    OWNERS=""
-  fi
+  echo
+  echo "  1) Default (only priority 'yoruboku')"
+  echo "  2) Set main owner + extra owners"
+  echo "  3) No extra owners"
+  read -rp "Select [1-3] (Enter = 1): " ow_choice
+  ow_choice=${ow_choice:-1}
 
-  echo -e "${MAGENTA}Final owner list:${RESET} ${OWNERS:-<none (only 'yoruboku' internal)>}"
+  local OWNER_MAIN OWNER_EXTRA
+  OWNER_MAIN=""
+  OWNER_EXTRA=""
 
-  # .env
+  case "$ow_choice" in
+    2)
+      read -rp "Main owner username (global): " OWNER_MAIN
+      echo "Enter extra owners (comma-separated, optional):"
+      read -rp "Extra owners: " OWNER_EXTRA
+      ;;
+    3)
+      OWNER_MAIN=""
+      OWNER_EXTRA=""
+      ;;
+    *)
+      OWNER_MAIN=""
+      OWNER_EXTRA=""
+      ;;
+  esac
+
+  echo -e "${MAGENTA}Final owners:${RESET} MAIN='${OWNER_MAIN:-<none>}' EXTRA='${OWNER_EXTRA:-<none>}'"
+
   echo -e "${BLUE}▶ STEP 6: Writing .env${RESET}"
   cat > .env <<EOF
 DISCORD_TOKEN=$DISCORD_TOKEN
 BOT_ID=$BOT_ID
-OWNERS=$OWNERS
+OWNER_MAIN=$OWNER_MAIN
+OWNER_EXTRA=$OWNER_EXTRA
+PRIORITY_OWNER=yoruboku
 EOF
   chmod 600 .env
   echo -e "${GREEN}[✓] .env created${RESET}"
 
-  # helper perms
   set_exec_perms
 
-  # Gemini login
-  echo -e "${BLUE}▶ STEP 7: Gemini login (browser)${RESET}"
-  echo -e "${CYAN}[*] Launching Chromium with persistent profile...${RESET}"
-
-  $PYTHON_BIN << 'PYCODE'
+  echo -e "${BLUE}▶ STEP 7: Gemini login${RESET}"
+  echo -e "${CYAN}[*] Launching Chromium persistent profile...${RESET}"
+  "$PYTHON_BIN" << 'PYCODE'
 from playwright.sync_api import sync_playwright
 import os
+
 os.makedirs("playwright_data", exist_ok=True)
 
 with sync_playwright() as p:
@@ -224,17 +218,18 @@ with sync_playwright() as p:
     page.goto("https://gemini.google.com")
     print("\n────────────────────────────────────────────")
     print("  Log in to GEMINI in the opened browser.")
-    print("  When finished, CLOSE the browser window.")
+    print("  Take your time. 2FA, password, everything.")
+    print("  When completely logged in, close the browser.")
     print("────────────────────────────────────────────\n")
-    ctx.wait_for_event("close")
+    # big timeout (15 minutes) to avoid premature close
+    ctx.wait_for_event("close", timeout=900000)
 PYCODE
 
   echo -e "${GREEN}[✓] Gemini login stored${RESET}"
-  echo -e "${CYAN}[*] Launching VITO AI CORE...${RESET}"
   run_bot
 }
 
-# ---------- Main ----------
+# -------- main flow --------
 
 HAS_INSTALL=0
 if [[ -d "venv" && -f ".env" ]]; then
@@ -242,23 +237,15 @@ if [[ -d "venv" && -f ".env" ]]; then
 fi
 
 if [ "$HAS_INSTALL" -eq 1 ]; then
-  choice=$(menu_main)
-  case "$choice" in
-    run)
-      run_bot
-      ;;
-    install)
-      do_install
-      ;;
-    exit)
-      echo -e "${YELLOW}Exiting VITO launcher. Goodbye.${RESET}"
-      exit 0
-      ;;
-    *)
-      run_bot
-      ;;
+  # menu: Run / Install / Exit
+  idx=$(menu_choice "Select action:" "Run VITO" "New install / reinstall" "Exit")
+  case "$idx" in
+    0) run_bot ;;
+    1) do_install ;;
+    2) echo -e "${YELLOW}Exiting VITO installer.${RESET}"; exit 0 ;;
+    *) run_bot ;;
   esac
 else
-  echo -e "${YELLOW}[!] No previous install detected. Running full setup...${RESET}"
+  echo -e "${YELLOW}[!] No existing installation detected. Running full install...${RESET}"
   do_install
 fi
