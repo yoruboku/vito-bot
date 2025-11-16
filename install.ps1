@@ -1,76 +1,130 @@
-# install.ps1 - Windows installer for VITO (styled)
-param()
-function writec([string]$text,[string]$color="White"){ Write-Host $text -ForegroundColor $color }
+#!/usr/bin/env pwsh
+Set-StrictMode -Version Latest
 
-writec "#########################################" Cyan
-writec "#                                       #" Cyan
-writec "#              V I T O - Installer      #" Cyan
-writec "#                                       #" Cyan
-writec "#########################################" Cyan
-Start-Sleep -Seconds 1
-
-# Pick python
-$py = Get-Command python -ErrorAction SilentlyContinue
-if (-not $py) { writec "Python not found. Install Python 3.9+ and re-run." Red; exit 1 }
-
-if (Test-Path "venv" -and Test-Path ".env") {
-    writec "Existing installation found. Updating dependencies..." Yellow
-    & .\venv\Scripts\Activate.ps1
-    pip install --upgrade pip
-    pip install -r requirements.txt
-    python -m playwright install chromium
-    writec "Starting VITO..." Green
-    python main.py
-    exit 0
+# Color helpers
+function Color([string]$text, [string]$color) {
+    Write-Host $text -ForegroundColor $color
 }
 
-writec "Creating virtual environment..." Blue
-python -m venv venv
-.\venv\Scripts\Activate.ps1
+# Banner
+Color "===============================================" Cyan
+Color "             V I T O   -   Installer           " Cyan
+Color "===============================================" Cyan
+Start-Sleep -Milliseconds 400
 
-writec "Installing dependencies..." Blue
+# Python detection
+$pythonCandidates = @("python", "python3", "py")
+$PYTHON_BIN = $null
+
+foreach ($p in $pythonCandidates) {
+    if (Get-Command $p -ErrorAction SilentlyContinue) {
+        $PYTHON_BIN = $p
+        break
+    }
+}
+
+if (-not $PYTHON_BIN) {
+    Color "ERROR: Python 3.9+ not found. Install Python and try again." Red
+    exit
+}
+
+Color "Using Python: $PYTHON_BIN" Green
+Start-Sleep -Milliseconds 300
+
+# If already installed → update + start
+if ((Test-Path "venv") -and (Test-Path ".env")) {
+    Color "Existing VITO installation detected." Yellow
+    Color "Updating dependencies..." Blue
+
+    & venv\Scripts\Activate.ps1
+    pip install --upgrade pip
+    pip install -r requirements.txt
+
+    Color "Ensuring Playwright Chromium installed..." Blue
+    & $PYTHON_BIN -m playwright install chromium
+
+    Color "Starting VITO..." Green
+    & $PYTHON_BIN main.py
+    exit
+}
+
+# Create venv
+Color "Creating virtual environment..." Blue
+& $PYTHON_BIN -m venv venv
+& venv\Scripts\Activate.ps1
+
+# Install pip requirements
+Color "Installing Python dependencies..." Blue
 pip install --upgrade pip
 pip install -r requirements.txt
 
-writec "Installing Playwright Chromium..." Blue
-python -m playwright install chromium
+# Install Playwright Chromium
+Color "Installing Playwright Chromium..." Blue
+& $PYTHON_BIN -m playwright install chromium
 
-# Ask for token and ID with confirmation
+# Ask for Discord token + bot id
 while ($true) {
-    $token = Read-Host "Enter your Discord Bot TOKEN"
-    $botid = Read-Host "Enter your Discord Bot ID (numeric)"
-    writec "`nYou entered:" Magenta
-    writec ("DISCORD_TOKEN: {0}..." -f $token.Substring(0,[Math]::Min(6,$token.Length))) Magenta
-    writec ("BOT_ID: {0}" -f $botid) Magenta
-    $ok = Read-Host "Is this correct? (y/n)"
-    if ($ok -match '^[Yy]') { break }
+    $DISCORD_TOKEN = Read-Host "Enter your Discord BOT TOKEN"
+    $BOT_ID = Read-Host "Enter your Discord BOT ID (numeric)"
+
+    Color "You entered:" Magenta
+    Write-Host ("TOKEN: " + $DISCORD_TOKEN.Substring(0,6) + "... (hidden)")
+    Write-Host "BOT ID: $BOT_ID"
+
+    if ($BOT_ID -notmatch '^\d{17,20}$') {
+        Color "BOT ID looks invalid (must be 17–20 digits)." Red
+        continue
+    }
+
+    $confirm = Read-Host "Is this correct? (y/n)"
+    if ($confirm -match '^[Yy]$') { break }
 }
 
-# Write .env
+# Create .env
 @"
-DISCORD_TOKEN=$token
-BOT_ID=$botid
+DISCORD_TOKEN=$DISCORD_TOKEN
+BOT_ID=$BOT_ID
 "@ | Out-File -Encoding utf8 .env
-writec ".env created and secured." Green
 
-# Open Playwright headful browser for Gemini login
-writec "Opening Chromium for Gemini login..." Cyan
-python - <<'PY'
+Color ".env created." Green
+Start-Sleep -Milliseconds 300
+
+# Setup persistent context
+Color "Creating persistent storage folder..." Blue
+New-Item -ItemType Directory -Path "playwright_data" -Force | Out-Null
+
+# Open Chromium for Gemini login
+Color "Now we will open Chromium for Gemini login." Cyan
+Color "Log in with your Google account, then close the browser window." Yellow
+
+$choice = Read-Host "Open Chromium now? (y/n)"
+if ($choice -match '^[Yy]$') {
+$pythonCode = @"
 from playwright.sync_api import sync_playwright
 import os
+
 os.makedirs("playwright_data", exist_ok=True)
+
 with sync_playwright() as p:
-    browser = p.chromium.launch(headless=False)
-    context = browser.new_context()
+    print("Opening persistent Chromium...")
+    context = p.chromium.launch_persistent_context(
+        user_data_dir="playwright_data",
+        headless=False
+    )
     page = context.new_page()
     page.goto("https://gemini.google.com/")
-    print("Please log in to Gemini. When finished, type 'done' here.")
+    print("Log in, then close the window to continue.")
+    # keep browser alive until user closes it manually
     try:
-        input("Type 'done' once logged in: ")
+        context.wait_for_event("close")
     except:
         pass
-    browser.close()
-PY
+"@
+    & $PYTHON_BIN -c $pythonCode
+}
 
-writec "Starting VITO..." Green
-python main.py
+Color "Gemini login complete." Green
+Start-Sleep -Milliseconds 400
+
+Color "Starting VITO..." Green
+& $PYTHON_BIN main.py
