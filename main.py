@@ -130,12 +130,16 @@ async def get_user_page(user_id: int):
     page = user_pages.get(user_id)
 
     # If page exists and is still alive → reuse
-    if page and not page.is_closed():
-        return page
-
-    # If page is closed or doesn't exist, create a new one.
-    if page:  # it must be closed
-        user_pages.pop(user_id, None)  # remove the old reference
+    if page:
+        try:
+            await page.title()  # will raise if closed
+            return page
+        except Exception:
+            try:
+                await page.close()
+            except Exception:
+                pass
+            user_pages.pop(user_id, None)
 
     # Create new page
     page = await browser_context.new_page()
@@ -166,14 +170,21 @@ async def ask_gemini(page, question: str, job_token: int) -> str:
     prev_count = len(prev_blocks)
 
     # Type + send
-    await page.click("div[contenteditable='true']")
-    await page.fill("div[contenteditable='true']", question)
-    await page.keyboard.press("Enter")
+    try:
+        await page.click("div[contenteditable='true']", timeout=5000)
+        await page.fill("div[contenteditable='true']", question)
+        await page.keyboard.press("Enter")
+    except Exception as e:
+        return f"Error interacting with Gemini page: {e}"
+
 
     # Wait for new answer block to appear, with timeout
     max_wait_seconds = 60
     waited = 0.0
     block = None
+    
+    # Faster polling
+    poll_interval = 0.05  # 50ms poll, was 0.15
 
     while True:
         # Cancellation check
@@ -185,8 +196,8 @@ async def ask_gemini(page, question: str, job_token: int) -> str:
             block = blocks[-1]
             break
 
-        await asyncio.sleep(0.05)
-        waited += 0.05
+        await asyncio.sleep(poll_interval)
+        waited += poll_interval
         if waited >= max_wait_seconds:
             return "Gemini did not respond in time."
 
@@ -204,7 +215,7 @@ async def ask_gemini(page, question: str, job_token: int) -> str:
             # If the node was replaced, grab the last one again
             blocks = await page.query_selector_all("div.markdown")
             if not blocks:
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(poll_interval)
                 continue
             block = blocks[-1]
             text = await block.inner_text()
@@ -218,7 +229,7 @@ async def ask_gemini(page, question: str, job_token: int) -> str:
         if stable >= 2:
             break
 
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(poll_interval)
 
     return last_text.strip()
 
